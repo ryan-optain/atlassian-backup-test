@@ -1,0 +1,38 @@
+# Distribution / packaging
+.Python
+env/
+.venv/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+__pycache__
+
+# Serverless directories
+.serverless
+
+_config.json
+venv/
+.vscode/
+node_modules/
+package-lock.json
+test.py
+backups/*
+!backups/.gitkeep
+wizard.pyc
+
+# Allow only sample in the code, not the actual one
+config.yaml
+
+# Ignore logs
+*.log
