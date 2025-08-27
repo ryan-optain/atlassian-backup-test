@@ -36,3 +36,5 @@ config.yaml
 
 # Ignore logs
 *.log
+
+.env

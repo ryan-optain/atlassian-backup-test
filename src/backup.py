@@ -71,13 +71,41 @@ class Atlassian:
     def download_file(self, url, local_filename) -> None:
         print(f'-> Downloading file from URL: {url}')
         r = self.session.get(url, stream=True)
-        file_path = os.path.join(os.path.dirname(
-            os.path.abspath(__file__)), 'backups', local_filename)
+
+        backups_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'backups')
+        os.makedirs(backups_dir, exist_ok=True)
+
+        file_path = os.path.join(backups_dir, local_filename)
         with open(file_path, 'wb') as file_:
             for chunk in r.iter_content(chunk_size=1024):
                 if chunk:
                     file_.write(chunk)
-        print(file_path)
+
+        print(f"✅ Backup saved to {file_path}")
+
+
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+from google.oauth2 import service_account
+
+def upload_to_google_drive(filepath, folder_id):
+    creds_dict = json.loads(os.getenv("DRIVE_CREDENTIALS_JSON"))
+    creds = service_account.Credentials.from_service_account_info(
+        creds_dict,
+        scopes=["https://www.googleapis.com/auth/drive.file"],
+    )
+
+    service = build("drive", "v3", credentials=creds)
+    file_metadata = {"name": os.path.basename(filepath), "parents": [folder_id]}
+    media = MediaFileUpload(filepath, resumable=True)
+
+    file = service.files().create(
+        body=file_metadata,
+        media_body=media,
+        fields="id"
+    ).execute()
+
+    print(f"✅ Uploaded {filepath} to Google Drive (file id: {file.get('id')})")
 
 
 def main() -> None:
@@ -88,10 +116,29 @@ def main() -> None:
                         dest='confluence', help='activate confluence backup')
     parser.add_argument('-j', action='store_true',
                         dest='jira', help='activate jira backup')
+    parser.add_argument('--upload', action='store_true', help='upload backup to Google Drive')
     if parser.parse_args().wizard or (os.path.exists(os.path.join(get_root_dir(), CONFIG_FILE)) == False):
         wizard.create_config()
 
-    config = read_config()
+    def get_config():
+        env_config = {
+            "ATLASSIAN_EMAIL": os.getenv("ATLASSIAN_EMAIL"),
+            "API_TOKEN": os.getenv("API_TOKEN"),
+            "ATLASSIAN_TENANT": os.getenv("ATLASSIAN_TENANT"),
+            "INCLUDE_ATTACHMENTS": os.getenv("INCLUDE_ATTACHMENTS") == "true",
+            "DRIVE_FOLDER_ID": os.getenv("DRIVE_FOLDER_ID"),
+            "DRIVE_CREDENTIALS_JSON": os.getenv("DRIVE_CREDENTIALS_JSON"),
+        }
+
+        if all([env_config["ATLASSIAN_EMAIL"], env_config["API_TOKEN"], env_config["ATLASSIAN_TENANT"]]):
+            return env_config
+
+        yaml_config = read_config()
+        yaml_config["INCLUDE_ATTACHMENTS"] = bool(yaml_config.get("INCLUDE_ATTACHMENTS", True))
+        return yaml_config
+
+    config = get_config()
+
 
     if config['ATLASSIAN_TENANT'] == 'something.atlassian.net':
         raise ValueError(
@@ -108,6 +155,15 @@ def main() -> None:
     print(f'-> Backup URL: {backup_url}')
     file_name = f"{time.strftime('%d%m%Y_%H%M')}_{backup_url.split('/')[-1].replace('?fileId=', '')}.zip"
     atlass.download_file(backup_url, file_name)
+
+    full_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'backups', file_name)
+
+    if parser.parse_args().upload:
+        folder_id = os.getenv("DRIVE_FOLDER_ID")
+        if not folder_id:
+            raise ValueError("Missing DRIVE_FOLDER_ID environment variable")
+        upload_to_google_drive(full_path, folder_id)
+
 
 
 def get_root_dir() -> str:
